@@ -3,4 +3,4 @@ chromadb==0.3.26
 Flask==2.3.2
 langchain==0.0.195
 langchainplus-sdk==0.0.8
-gunicorn==19.3.0
+gunicorn==20.1.0
