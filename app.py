@@ -165,13 +165,9 @@ def answer():
 def index():
     return render_template("index.html", title="")
 
-# Initialize the app
-@app.before_first_request
-def initialize_app():
+# Initialize the app on startup
+if __name__ == "__main__":
     app.logger.debug('Initializing LLM chains...')
     setup()
     app.logger.debug('LLM chains initialized')
-
-if __name__ == "__main__":
-    setup()
     app.run(host='0.0.0.0', port=5001)
