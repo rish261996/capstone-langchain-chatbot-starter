@@ -25,11 +25,11 @@ logging.basicConfig(level=logging.DEBUG,
 # Set Flask's log level to DEBUG
 app.logger.setLevel(logging.DEBUG)
 
-
 global chatbot_llm_chain
 global knowledgebase_llm
 global knowledgebase_qa
 
+# Setup chatbot LLM
 def setup_chatbot_llm():
     global chatbot_llm_chain
     template = """
@@ -39,78 +39,107 @@ def setup_chatbot_llm():
     New human question: {question}
 
     Response:"""
-
+    
     prompt = PromptTemplate(template=template, input_variables=["question", "chat_history"])
-    llm = Cohere(cohere_api_key=os.environ["COHERE_API_KEY"])
+    llm = Cohere(cohere_api_key=os.environ.get("COHERE_API_KEY"))
     memory = ConversationBufferMemory(memory_key="chat_history")
     chatbot_llm_chain = LLMChain(prompt=prompt, llm=llm, verbose=True, memory=memory)
-    
+    app.logger.debug('Chatbot LLM chain set up successfully')
 
+# Setup knowledge base LLM
 def setup_knowledgebase_llm():
     global knowledgebase_qa
-    app.logger.debug('Setting KB')
+    app.logger.debug('Setting up knowledge base')
     try:
-        # Used for mathematical rep of the book
-        embeddings = CohereEmbeddings(cohere_api_key=os.environ["COHERE_API_KEY"])
-        # db has the textual representation of the book.
-        # we are loading and converting that to a mathematical model and persisting it in the chromaDB
-        # and creating a search index
+        # Load embeddings and vectorstore
+        embeddings = CohereEmbeddings(cohere_api_key=os.environ.get("COHERE_API_KEY"))
         vectordb = Chroma(persist_directory='db', embedding_function=embeddings)
+        
         knowledgebase_qa = RetrievalQA.from_chain_type(
-            llm=Cohere(),
+            llm=Cohere(cohere_api_key=os.environ.get("COHERE_API_KEY")),
             chain_type="refine",
             retriever=vectordb.as_retriever(),
             return_source_documents=True
         )
-        print("Successfully setup the KB")
+        app.logger.debug('Knowledge base setup successful')
     except Exception as e:
-        print("Error:", e)
+        app.logger.error(f"Error setting up knowledge base: {str(e)}")
 
-
+# General setup function
 def setup():
     setup_chatbot_llm()
     setup_knowledgebase_llm()
 
+# Answer query from knowledge base
 def answer_from_knowledgebase(message):
     global knowledgebase_qa
-    app.logger.debug('Before query')
-    res = knowledgebase_qa({"query": message})
-    app.logger.debug('Query successful')
+    if not knowledgebase_qa:
+        app.logger.error('Knowledge base is not set up')
+        abort(500, description="Knowledge base not available")
+    try:
+        res = knowledgebase_qa({"query": message})
+        app.logger.debug('Query successful')
+        return res['result']
+    except Exception as e:
+        app.logger.error(f"Error during KB query: {str(e)}")
+        abort(500, description="Query failed")
 
-    return res['result']
-
+# Search knowledge base and retrieve sources
 def search_knowledgebase(message):
     global knowledgebase_qa
-    res = knowledgebase_qa({"query": message})
-    sources = ""
-    for count, source in enumerate(res['source_documents'],1):
-        sources += "Source " + str(count) + "\n"
-        sources += source.page_content + "\n"
-    return sources
+    if not knowledgebase_qa:
+        app.logger.error('Knowledge base is not set up')
+        abort(500, description="Knowledge base not available")
+    try:
+        res = knowledgebase_qa({"query": message})
+        if 'source_documents' not in res:
+            app.logger.error('No source documents found')
+            return "No sources available"
+        
+        sources = ""
+        for count, source in enumerate(res['source_documents'], 1):
+            sources += f"Source {count}\n{source.page_content}\n"
+        return sources
+    except Exception as e:
+        app.logger.error(f"Error during KB search: {str(e)}")
+        abort(500, description="Search failed")
 
+# Chatbot LLM function
 def answer_as_chatbot(message):
     template = """Question: {question}
     Answer as if you are an expert Python developer"""
     prompt = PromptTemplate(template=template, input_variables=["question"])
-    llm = Cohere(cohere_api_key=os.environ["COHERE_API_KEY"])
+    llm = Cohere(cohere_api_key=os.environ.get("COHERE_API_KEY"))
     llm_chain = LLMChain(prompt=prompt, llm=llm)
-    res = llm_chain.run(message)
-    return res
+    
+    try:
+        res = llm_chain.run(message)
+        app.logger.debug('Chatbot query successful')
+        return res
+    except Exception as e:
+        app.logger.error(f"Error during chatbot query: {str(e)}")
+        abort(500, description="Chatbot query failed")
 
+# API routes
 @app.route('/kbanswer', methods=['POST'])
 def kbanswer():
-    message = request.json['message']
+    message = request.json.get('message')
+    
+    if not message:
+        abort(400, description="Message is required")
     
     # Generate a response
     response_message = answer_from_knowledgebase(message)
     
     # Return the response as JSON
     return jsonify({'message': response_message}), 200
-    
 
 @app.route('/search', methods=['POST'])
 def search():    
-    message = request.json['message']
+    message = request.json.get('message')
+    
+    if not message:
+        abort(400, description="Message is required")
     
     # Generate a response
     response_message = search_knowledgebase(message)
@@ -120,7 +149,10 @@ def search():
 
 @app.route('/answer', methods=['POST'])
 def answer():
-    message = request.json['message']
+    message = request.json.get('message')
+    
+    if not message:
+        abort(400, description="Message is required")
     
     # Generate a response
     response_message = answer_as_chatbot(message)
@@ -128,9 +160,17 @@ def answer():
     # Return the response as JSON
     return jsonify({'message': response_message}), 200
 
+# Home route
 @app.route("/")
 def index():
     return render_template("index.html", title="")
+
+# Initialize the app
+@app.before_first_request
+def initialize_app():
+    app.logger.debug('Initializing LLM chains...')
+    setup()
+    app.logger.debug('LLM chains initialized')
 
 if __name__ == "__main__":
     setup()
