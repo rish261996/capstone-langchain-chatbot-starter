@@ -41,7 +41,6 @@ def setup_chatbot_llm():
 
 def setup_knowledgebase_llm():
    
-    app.logger.debug('Setting KB')
     try:
         # Used for mathematical rep of the book
         embeddings = CohereEmbeddings(cohere_api_key=os.environ["COHERE_API_KEY"])
@@ -55,7 +54,7 @@ def setup_knowledgebase_llm():
             retriever=vectordb.as_retriever(),
             return_source_documents=True
         )
-        print("Successfully setup the KB")
+        return knowledgebase_qa
     except Exception as e:
         print("Error:", e)
 
@@ -65,7 +64,7 @@ qa = setup_knowledgebase_llm()
 
 def answer_from_knowledgebase(message):
     
-    app.logger.debug('Before query')
+
     res = qa({"query": message})
     return res['result']
 
