@@ -18,12 +18,7 @@ import os
 
 app = Flask(__name__)
 
-logging.basicConfig(level=logging.DEBUG,
-                    format='%(asctime)s %(levelname)s %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S')
 
-# Set Flask's log level to DEBUG
-app.logger.setLevel(logging.DEBUG)
 
 
 
@@ -72,12 +67,10 @@ def answer_from_knowledgebase(message):
     
     app.logger.debug('Before query')
     res = qa({"query": message})
-    app.logger.debug('Query successful')
-
     return res['result']
 
 def search_knowledgebase(message):
-    global knowledgebase_qa
+    
     res = qa({"query": message})
     sources = ""
     for count, source in enumerate(res['source_documents'],1):
