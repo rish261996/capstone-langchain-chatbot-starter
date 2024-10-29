@@ -18,20 +18,10 @@ import os
 
 app = Flask(__name__)
 
-logging.basicConfig(level=logging.DEBUG,
-                    format='%(asctime)s %(levelname)s %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S')
 
-# Set Flask's log level to DEBUG
-app.logger.setLevel(logging.DEBUG)
-
-
-global chatbot_llm_chain
-global knowledgebase_llm
-global knowledgebase_qa
 
 def setup_chatbot_llm():
-    global chatbot_llm_chain
+    
     template = """
     You are a chatbot that had a conversation with a human. Consider the previous conversation to answer the new question.
 
@@ -47,8 +37,7 @@ def setup_chatbot_llm():
     
 
 def setup_knowledgebase_llm():
-    global knowledgebase_qa
-    app.logger.debug('Setting KB')
+    
     try:
         # Used for mathematical rep of the book
         embeddings = CohereEmbeddings(cohere_api_key=os.environ["COHERE_API_KEY"])
@@ -67,21 +56,18 @@ def setup_knowledgebase_llm():
         print("Error:", e)
 
 
-def setup():
-    setup_chatbot_llm()
-    setup_knowledgebase_llm()
-
+qa = setup_knowledgebase()
 def answer_from_knowledgebase(message):
-    global knowledgebase_qa
-    app.logger.debug('Before query')
-    res = knowledgebase_qa({"query": message})
-    app.logger.debug('Query successful')
+    
+    
+    res = qa({"query": message})
+    
 
     return res['result']
 
 def search_knowledgebase(message):
-    global knowledgebase_qa
-    res = knowledgebase_qa({"query": message})
+    
+    res = qa({"query": message})
     sources = ""
     for count, source in enumerate(res['source_documents'],1):
         sources += "Source " + str(count) + "\n"
