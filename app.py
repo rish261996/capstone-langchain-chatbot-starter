@@ -1,5 +1,7 @@
 from flask import Flask, render_template
 from flask import request, jsonify, abort
+import logging
+
 from langchain.llms import Cohere
 from langchain import PromptTemplate, LLMChain
 from langchain.chains import SequentialChain
@@ -8,37 +10,81 @@ from langchain.prompts.chat import (
     SystemMessagePromptTemplate,
     HumanMessagePromptTemplate,
 )
+from langchain.memory import ConversationBufferMemory
 from langchain.chains import RetrievalQA
 from langchain.embeddings import CohereEmbeddings
 from langchain.vectorstores import Chroma
 import os
-from dotenv import load_dotenv
-load_dotenv()
+
 app = Flask(__name__)
-def load_db():
+
+logging.basicConfig(level=logging.DEBUG,
+                    format='%(asctime)s %(levelname)s %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S')
+
+# Set Flask's log level to DEBUG
+app.logger.setLevel(logging.DEBUG)
+
+
+
+
+def setup_chatbot_llm():
+    
+    template = """
+    You are a chatbot that had a conversation with a human. Consider the previous conversation to answer the new question.
+
+    Previous conversation:{chat_history}
+    New human question: {question}
+
+    Response:"""
+
+    prompt = PromptTemplate(template=template, input_variables=["question", "chat_history"])
+    llm = Cohere(cohere_api_key=os.environ["COHERE_API_KEY"])
+    memory = ConversationBufferMemory(memory_key="chat_history")
+    chatbot_llm_chain = LLMChain(prompt=prompt, llm=llm, verbose=True, memory=memory)
+    
+
+def setup_knowledgebase_llm():
+   
+    app.logger.debug('Setting KB')
     try:
+        # Used for mathematical rep of the book
         embeddings = CohereEmbeddings(cohere_api_key=os.environ["COHERE_API_KEY"])
+        # db has the textual representation of the book.
+        # we are loading and converting that to a mathematical model and persisting it in the chromaDB
+        # and creating a search index
         vectordb = Chroma(persist_directory='db', embedding_function=embeddings)
-        qa = RetrievalQA.from_chain_type(
+        knowledgebase_qa = RetrievalQA.from_chain_type(
             llm=Cohere(),
             chain_type="refine",
             retriever=vectordb.as_retriever(),
             return_source_documents=True
         )
-        return qa
+        print("Successfully setup the KB")
     except Exception as e:
         print("Error:", e)
-qa = load_db()
+
+
+# include a initialization
+qa = setup_knowledgebase_llm()
+
 def answer_from_knowledgebase(message):
+    
+    app.logger.debug('Before query')
     res = qa({"query": message})
+    app.logger.debug('Query successful')
+
     return res['result']
+
 def search_knowledgebase(message):
+    global knowledgebase_qa
     res = qa({"query": message})
     sources = ""
     for count, source in enumerate(res['source_documents'],1):
         sources += "Source " + str(count) + "\n"
         sources += source.page_content + "\n"
     return sources
+
 def answer_as_chatbot(message):
     template = """Question: {question}
     Answer as if you are an expert Python developer"""
@@ -47,29 +93,42 @@ def answer_as_chatbot(message):
     llm_chain = LLMChain(prompt=prompt, llm=llm)
     res = llm_chain.run(message)
     return res
+
 @app.route('/kbanswer', methods=['POST'])
 def kbanswer():
     message = request.json['message']
-    # Get the answer to the question
+    
+    # Generate a response
     response_message = answer_from_knowledgebase(message)
+    
     # Return the response as JSON
     return jsonify({'message': response_message}), 200
+    
+
 @app.route('/search', methods=['POST'])
-def search():
+def search():    
     message = request.json['message']
-    # Search the knowledgebase and generate a response
+    
+    # Generate a response
     response_message = search_knowledgebase(message)
+    
     # Return the response as JSON
     return jsonify({'message': response_message}), 200
+
 @app.route('/answer', methods=['POST'])
 def answer():
     message = request.json['message']
-    # Generate a response as an expert Python developer
+    
+    # Generate a response
     response_message = answer_as_chatbot(message)
+    
     # Return the response as JSON
     return jsonify({'message': response_message}), 200
+
 @app.route("/")
 def index():
     return render_template("index.html", title="")
+
 if __name__ == "__main__":
-    app.run()
+    setup()
+    app.run(host='0.0.0.0', port=5001)
