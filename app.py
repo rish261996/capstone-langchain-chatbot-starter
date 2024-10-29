@@ -56,7 +56,7 @@ def setup_knowledgebase_llm():
         print("Error:", e)
 
 
-qa = setup_knowledgebase()
+qa = setup_knowledgebase_llm()
 def answer_from_knowledgebase(message):
     
     
